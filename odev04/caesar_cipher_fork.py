@@ -81,16 +81,18 @@ if __name__ == '__main__':
 #        queue.put("STOP")
     
     
-    for p in pr:
-        p.join()
-    
-    
+    while not queue.empty():
+        pass
+        
     mergeArray = [None]*index
-
+   
     while not processedQueue.empty():
         data = processedQueue.get()
         mergeArray[data["index"]] = data["text"]
-
+   
+    for p in pr:
+        p.terminate()
+    
     encodedText = ""
     for str in mergeArray:
         encodedText += str
