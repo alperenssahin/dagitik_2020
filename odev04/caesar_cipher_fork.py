@@ -18,24 +18,27 @@ def encoding(text,s):
 def worker(queue,processedQueue,s,mainIndex,lock):
 #    print(current_process().name + " started :" )
     try:
-        print(str(queue.empty()) + " " + current_process().name)
+#        print(str(queue.empty()) + " " + current_process().name)
         state = True
-        while True:
+        while state:
             lock.acquire()
-            if not queue.empty():
-                data = queue.get()
+            data = queue.get()
+            if data == "EOL":
+                print("END OF THE LINE " +current_process().name)
+                queue.put("EOL")
                 lock.release()
-                processedQueue.put({"text":encoding(data["text"],s),"index":data["index"]})
+                state = False
             else:
                 lock.release()
-                break
+                processedQueue.put({"text":encoding(data["text"],s),"index":data["index"]})
             
     #            print(current_process().name + " log ::" + str(mainIndex)+ " "  + str(data))
         
     except Exception as err:
         print(str(err) + " " +current_process().name)
+        lock.release()
         
-    print(str(queue.empty()) + " " + current_process().name)
+#    print(str(queue.empty()) + " " + current_process().name)
     print(current_process().name + " ended ")
     return True
 
@@ -68,6 +71,8 @@ if __name__ == '__main__':
         queue.put({"text":text[tmp:tmp+l],"index":index})
         tmp = tmp + l
         index += 1
+    queue.put("EOL")
+    queue.put("EOL")
         
     for i in range(0,n):
         p = Process(target=worker, args=(queue,processedQueue,s,i,lock))
