@@ -81,6 +81,7 @@ class WriteThread(threading.Thread):
             if data == "CLOSE":
                 self.conn.send("connection closed".encode('ascii'))
                 self.logger.put(self.client + " closing")
+                self.conn.close()
                 break
             data = data+"\n\r"
             self.conn.send(data.encode('ascii'))
