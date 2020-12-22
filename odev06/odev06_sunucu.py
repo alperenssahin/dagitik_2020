@@ -50,13 +50,16 @@ class ReadThread(threading.Thread):
                     except:
                         self.queue.put("ERR invalidMessageFormat")
                         self.logger.put(self.username + " user is sending message error")
-                if "ALL" == data.split(" ")[0]:
+                elif "ALL" == data.split(" ")[0]:
                     try:
                         for user in self.fihrist.keys():
                             self.fihrist[user].put("MSGALL FROM:" + self.username +" "+ dArray[1])
                     except:
                         self.queue.put("ERR inValidAllMessageFormat")
                         self.logger.put(self.username + " user is sending all message error")
+                else:
+                    self.queue.put("ERR inValidProtocol")
+                    self.logger.put(self.username + " user sent a Invalid protocol message")
             else:
                 self.queue.put("ERR undefinedUsername")
                 self.logger.put("Error undefined username")
