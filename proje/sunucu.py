@@ -17,6 +17,22 @@ class Room:
         self.adminStore.addUser(creator)
         self.userStore.addUser(creator)
 
+    def addUser(self, user):
+        if self.blockedUserStore.isUserExist(user):
+            raise PermissionError
+        else:
+            self.userStore.addUser(user)
+
+    def sendMessage(self, message, username):
+        for user in self.userStore.userList:
+            user.queue.put("OGM " + self.name + ":" + username + ":" + message)
+
+    def userNameMapper(self, user):
+        return user.name
+
+    def getUserNames(self):
+        return list(map(self.userNameMapper, self.userStore.userList))
+
 
 class User:
     def __init__(self, queue):
@@ -80,11 +96,11 @@ class RoomStore:
                 return room
         return None
 
-    def roomNamesMapper(self,room):
+    def roomNamesMapper(self, room):
         return room.name
 
     def getRoomNames(self):
-        return list(map(self.roomNamesMapper,self.roomList))
+        return list(map(self.roomNamesMapper, self.roomList))
 
 
 class ReadThread(threading.Thread):
@@ -181,7 +197,111 @@ class ReadThread(threading.Thread):
 
     def rlsHandler(self):
         roomnames = ":".join(self.roomStore.getRoomNames())
-        self.queue.put("RLS "+roomnames)
+        self.queue.put("RLS " + roomnames)
+
+    def rinHandler(self, body):
+        room = self.roomStore.getRoomByName(body)
+        try:
+            room.addUser(self.user)
+            self.queue.put("OKI " + body)
+        except:
+            self.queue.put("ERR permissionDeniedBannedFromRoom")
+
+    def gnlHandler(self, body):
+        room = body.split(":")[0]
+        message = ":".join(body.split(":")[1:])
+        room.sendMessage(message, self.user.name)
+
+    def prvHandler(self, body):
+        username = body.split(":")[0]
+        message = ":".join(body.split(":")[1:])
+        user = self.userStore.getUserByName(username)
+        if user is None:
+            self.queue.put("ERR invalidUser")
+        else:
+            user.queue.put("OPM " + self.user.name + ":" + message)
+
+    def banHandler(self, body):
+        roomname = body.split(":")[0]
+        username = body.split(":")[1]
+
+        room = self.roomStore.getRoomByName(roomname)
+        if room.adminStore.isUserExist(self.user):
+            user = room.userStore.getUserByName(username)
+            if user is None:
+                self.queue.put("ERR userNotFound")
+            else:
+                if user != room.creator:
+                    room.userStore.removeUser(user)
+                    room.adminStore.removeUser(user)
+                    room.blockedUserStore.addUser(user)
+                    user.queue.put("OBN " + roomname + ":" + user.name)
+                    self.queue.put("OBN " + roomname + ":" + user.name)
+                else:
+                    self.queue.put("ERR permissionDeniedUserIsACreator")
+        else:
+            self.queue.put("ERR permissionDenied")
+
+    def rutHandler(self, body):
+        room = self.roomStore.getRoomByName(body)
+        room.adminStore.removeUser(self.user)
+        room.userStore.removeUser(self.user)
+        self.queue.put("BYR " + body)
+
+    def rmvHandler(self, body):
+        room = self.roomStore.getRoomByName(body)
+        for user in room.userStore:
+            user.queue.put("BYR " + body)
+        self.roomStore.removeRoom(room)
+
+    def kckHandler(self, body):
+        roomname = body.split(":")[0]
+        username = body.split(":")[1]
+
+        room = self.roomStore.getRoomByName(roomname)
+        if room.adminStore.isUserExist(self.user):
+            user = room.userStore.getUserByName(username)
+            if user is None:
+                self.queue.put("ERR userNotFound")
+            else:
+                if user != room.creator:
+                    room.userStore.removeUser(user)
+                    room.adminStore.removeUser(user)
+                    user.queue.put("OCK " + roomname + ":" + user.name)
+                    self.queue.put("OCK " + roomname + ":" + user.name)
+                else:
+                    self.queue.put("ERR permissionDeniedUserIsACreator")
+        else:
+            self.queue.put("ERR permissionDenied")
+
+    def ulsHandler(self, body):
+        room = self.roomStore.getRoomByName(body)
+        usernames = ":".join(room.getUserNames())
+        self.queue.put("ULS " + usernames)
+
+    def mlsHandler(self):
+        roomNames = []
+        for room in self.roomStore.roomList:
+            if room.userStore.isUserExist(self.user):
+                roomNames.append(room.name)
+        roomNames = ":".join(roomNames)
+        self.queue.put("MLS " + roomNames)
+
+    def madHandler(self,body):
+        username = body.split(":")[0]
+        roomname = body.split(":")[1]
+
+        room = self.roomStore.getRoomByName(roomname)
+        if room.adminStore.isUserExist(self.user):
+            user = room.userStore.getUserByName(username)
+            if user is None:
+                self.queue.put("ERR userNotFound")
+            else:
+                room.adminStore.addUser(user)
+                self.queue.put("MAD "+username+":"+roomname)
+                user.queue.put("MAD "+username+":"+roomname)
+        else:
+            self.queue.put("ERR permissionDenied")
 
     def parser(self, data):
         instruction = data[:3]
@@ -195,23 +315,25 @@ class ReadThread(threading.Thread):
         if instruction == "RLS":
             self.rlsHandler()
         if instruction == "RIN":
-            print("NIC")
+            self.rinHandler(body)
         if instruction == "GNL":
-            print("NIC")
+            self.gnlHandler(body)
         if instruction == "PRV":
-            print("NIC")
+            self.prvHandler(body)
         if instruction == "BAN":
-            print("NIC")
+            self.banHandler(body)
         if instruction == "RUT":
-            print("NIC")
+            self.rutHandler(body)
         if instruction == "RMV":
-            print("NIC")
+            self.rmvHandler(body)
         if instruction == "KCK":
-            print("NIC")
+            self.kckHandler(body)
         if instruction == "ULS":
-            print("NIC")
+            self.ulsHandler(body)
         if instruction == "MLS":
-            print("NIC")
+            self.mlsHandler()
+        if instruction == "MAD":
+            self.madHandler(body)
 
 
 class WriteThread(threading.Thread):
