@@ -11,6 +11,8 @@ from firebase_admin import db
 import json
 import hashlib
 
+import time
+
 cred = credentials.Certificate("connectionToken.json")
 
 firebase_admin.initialize_app(cred, {
@@ -88,8 +90,14 @@ class Room:
             self.userStore.addUser(user)
 
     def sendMessage(self, message, username):
-        for user in self.userStore.userList:
-            user.queue.put("OGM " + self.name + ":" + username + ":" + message)
+        sender = self.userStore.getUserByName(username)
+        if sender is not None:
+            for user in self.userStore.userList:
+                try:
+                    user.queue.put("OGM " + self.name + ":" + username + ":" + message)
+                except:
+                    print("send message error")
+
 
     def userNameMapper(self, user):
         return user.name
@@ -120,6 +128,8 @@ class User:
 
     def setState(self, state):
         self.state = state
+        if state == "OFFLINE":
+            self.queue = None
 
     def toObject(self):
         return {"pin": self.pin, "name": self.name, "state": self.state}
@@ -167,7 +177,7 @@ class RoomStore:
         return room in self.roomList
 
     def removeRoom(self, room):
-        if self.isUserExist(room):
+        if self.isRoomExist(room):
             self.roomList.pop(self.roomList.index(room))
 
     def getRoomByName(self, roomName):
@@ -200,8 +210,9 @@ class ReadThread(threading.Thread):
         self.user = User(queue=queue)
         self.client = client
         self.db = db
+        self.storedUser = None
         self.validInstructions = ["NIC", "PCH", "NRM", "RLS", "RIN", "GNL", "PRV", "BAN", "RUT", "RMV", "KCK", "ULS",
-                                  "MLS"]
+                                  "MLS", "MAD"]
         self.unauthenticatedInstructions = ["NIC"]
         self.endOfLineToken = "<%%$%%>"
 
@@ -216,8 +227,9 @@ class ReadThread(threading.Thread):
             else:
                 data = data.split(self.endOfLineToken)[0]
                 if "QUI" in data[:3]:
-                    self.user.setState("OFFLINE")
                     self.queue.put("QUI")
+                    time.sleep(1)
+                    self.user.setState("OFFLINE")
                     break
                 self.validationChecker(data)
 
@@ -242,22 +254,23 @@ class ReadThread(threading.Thread):
         name = body.split(":")[0]
         pin = body.split(":")[1]
         if self.user.state == "OFFLINE":
-            storedUser = self.userStore.getUserByName(name)
-            if storedUser is None:
+            self.storedUser = self.userStore.getUserByName(name)
+            if self.storedUser is None:
                 self.user.setState("ONLINE")
                 self.user.setName(name)
                 self.user.setPin(pin)
                 self.userStore.addUser(self.user)
                 self.queue.put("WEL " + name)
+                self.storedUser = self.user
             else:
-                if storedUser.state == "ONLINE":
+                if self.storedUser.state == "ONLINE":
                     # self.queue.put("RES")
                     self.queue.put("ERR authenticationDeniedUserHasAlreadyLogIn")
                 else:
-                    if storedUser.pin == pin:
-                        storedUser.setState("ONLINE")
-                        storedUser.queue = self.queue
-                        self.user = storedUser
+                    if self.storedUser.pin == pin:
+                        self.storedUser.setState("ONLINE")
+                        self.storedUser.queue = self.queue
+                        self.user = self.storedUser
                         self.queue.put("WEL " + name)
                     else:
                         # self.queue.put("RES")
@@ -299,6 +312,7 @@ class ReadThread(threading.Thread):
     def gnlHandler(self, body):
         room = body.split(":")[0]
         message = ":".join(body.split(":")[1:])
+        room = self.roomStore.getRoomByName(room)
         room.sendMessage(message, self.user.name)
 
     def prvHandler(self, body):
@@ -339,7 +353,7 @@ class ReadThread(threading.Thread):
 
     def rmvHandler(self, body):
         room = self.roomStore.getRoomByName(body)
-        for user in room.userStore:
+        for user in room.userStore.userList:
             user.queue.put("BYR " + body)
         self.roomStore.removeRoom(room)
 
@@ -489,6 +503,27 @@ class DatabaseThread(threading.Thread):
             sha = Database.update(self.userstore, self.roomstore, sha)
 
 
+class ConnectionChecker(threading.Thread):
+    def __init__(self, userstore, db):
+        threading.Thread.__init__(self)
+        self.userstore = userstore
+        self.db = db
+
+    def run(self):
+        print("ConnectionChecker Thread Started")
+        while True:
+
+            print("+connection checker+")
+            for user in self.userstore.userList:
+                if user.state == "ONLINE":
+                    try:
+                        user.queue.put("PNG")
+                    except:
+                        user.setState("OFFLINE")
+                        self.db.put("signal")
+            time.sleep(60)
+
+
 serversocket = socket.socket(
     socket.AF_INET, socket.SOCK_STREAM)
 
@@ -516,6 +551,9 @@ dbThread = DatabaseThread(dbQueue, roomStore, userStore)
 dbThread.start()
 
 Database.adaptor(userStore, roomStore)
+
+checker = ConnectionChecker(userStore, dbQueue)
+checker.start()
 
 while True:
     clientsocket, addr = serversocket.accept()
