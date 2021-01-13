@@ -4,14 +4,15 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 sock.connect(("127.0.0.1", 3001))
 
 messages = [" ",
-            "NIC alperen:403<%%$%%>",
-            "PCH 403:404<%%$%%>",
+            "NIC alperen:404<%%$%%>",
+            "PCH 404:405<%%$%%>",
             "PCH 403:404<%%$%%>",
             "NRM MYROOOM<%%$%%>",
             "NRM MYROOOM<%%$%%>",
             "NRM MYROOOM2<%%$%%>",
             "NRM MYROOOM3<%%$%%>",
             "RLS<%%$%%>",
+            "PCH 405:404<%%$%%>",
             "QUI<%%$%%>"]
 
 data = sock.recv(1024)

@@ -4,18 +4,82 @@ import queue
 import threading
 from datetime import datetime
 
+import firebase_admin
+from firebase_admin import credentials
+from firebase_admin import db
+
+import json
+import hashlib
+
+cred = credentials.Certificate("connectionToken.json")
+
+firebase_admin.initialize_app(cred, {
+    'databaseURL': 'https://dagitik-436e4-default-rtdb.europe-west1.firebasedatabase.app/'
+})
+
 print(datetime.now())
 
 
+class Database:
+    @staticmethod
+    def update(userstore, roomstore, sha):
+        obj = {"userstore": userstore.toObject(), "roomstore": roomstore.toObject()}
+        nsha = hashlib.sha256(json.dumps(obj).encode())
+        if nsha.hexdigest() != sha.hexdigest():
+            db.reference("dagitik").set(obj)
+            return nsha
+        else:
+            return sha
+
+    @staticmethod
+    def adaptor(userstore, roomstore):
+        obj = db.reference("dagitik").get()
+        if obj is not None:
+            for user in obj["userstore"]:
+                userstore.addUser(User(name=user["name"], pin=user["pin"], state=user["state"]))
+
+            for room in obj["roomstore"]:
+                tmp_adminStore = UserStore()
+                tmp_userStore = UserStore()
+                tmp_blockedUserStore = UserStore()
+                for user in room["adminStore"]:
+                    tmp_adminStore.addUser(userstore.getUserByName(user["name"]))
+                for user in room["userStore"]:
+                    tmp_userStore.addUser(userstore.getUserByName(user["name"]))
+                try:
+                    for user in room["blockedUserStore"]:
+                        tmp_blockedUserStore.addUser(userstore.getUserByName(user["name"]))
+                except:
+                    pass
+                roomstore.addRoom(Room(
+                    name=room["name"],
+                    creator=userstore.getUserByName(room["creator"]["name"]),
+                    userStore=tmp_userStore,
+                    adminStore=tmp_adminStore,
+                    blockedUserStore=tmp_blockedUserStore
+                ))
+
+
 class Room:
-    def __init__(self, name, creator):
+    def __init__(self, name=None, creator=None, adminStore=None, userStore=None, blockedUserStore=None):
         self.name = name
         self.creator = creator
-        self.adminStore = UserStore()
-        self.userStore = UserStore()
-        self.blockedUserStore = UserStore()
-        self.adminStore.addUser(creator)
-        self.userStore.addUser(creator)
+        if adminStore is None:
+            self.adminStore = UserStore()
+            self.adminStore.addUser(creator)
+        else:
+            self.adminStore = adminStore
+
+        if userStore is None:
+            self.userStore = UserStore()
+            self.userStore.addUser(creator)
+        else:
+            self.userStore = userStore
+
+        if blockedUserStore is None:
+            self.blockedUserStore = UserStore()
+        else:
+            self.blockedUserStore = blockedUserStore
 
     def addUser(self, user):
         if self.blockedUserStore.isUserExist(user):
@@ -33,13 +97,20 @@ class Room:
     def getUserNames(self):
         return list(map(self.userNameMapper, self.userStore.userList))
 
+    def toObject(self):
+        return {"name": self.name,
+                "creator": self.creator.toObject(),
+                "adminStore": self.adminStore.toObject(),
+                "userStore": self.userStore.toObject(),
+                "blockedUserStore": self.blockedUserStore.toObject()}
+
 
 class User:
-    def __init__(self, queue):
+    def __init__(self, queue=None, pin=None, state="OFFLINE", name=None):  # girisyapan kullanici
         self.queue = queue
-        self.pin = None
-        self.name = None
-        self.state = "OFFLINE"
+        self.pin = pin
+        self.name = name
+        self.state = state
 
     def setName(self, name):
         self.name = name
@@ -49,6 +120,9 @@ class User:
 
     def setState(self, state):
         self.state = state
+
+    def toObject(self):
+        return {"pin": self.pin, "name": self.name, "state": self.state}
 
 
 class UserStore:
@@ -71,6 +145,12 @@ class UserStore:
             if user.name == username:
                 return user
         return None
+
+    def toObjectMapper(self, user):
+        return user.toObject()
+
+    def toObject(self):
+        return list(map(self.toObjectMapper, self.userList))
 
 
 class RoomStore:
@@ -102,17 +182,24 @@ class RoomStore:
     def getRoomNames(self):
         return list(map(self.roomNamesMapper, self.roomList))
 
+    def toObjectMapper(self, room):
+        return room.toObject()
+
+    def toObject(self):
+        return list(map(self.toObjectMapper, self.roomList))
+
 
 class ReadThread(threading.Thread):
-    def __init__(self, conn, queue, loggerQueue, userStore, roomStore, client):
+    def __init__(self, conn, queue, loggerQueue, userStore, roomStore, client, db):
         threading.Thread.__init__(self)
         self.conn = conn
         self.queue = queue
         self.logger = loggerQueue
         self.roomStore = roomStore
         self.userStore = userStore
-        self.user = User(queue)
+        self.user = User(queue=queue)
         self.client = client
+        self.db = db
         self.validInstructions = ["NIC", "PCH", "NRM", "RLS", "RIN", "GNL", "PRV", "BAN", "RUT", "RMV", "KCK", "ULS",
                                   "MLS"]
         self.unauthenticatedInstructions = ["NIC"]
@@ -146,8 +233,10 @@ class ReadThread(threading.Thread):
                 self.queue.put("ERR unauthenticatedUserError")
             else:
                 self.parser(data)
+                self.db.put("signal")
         else:
             self.parser(data)
+            self.db.put("signal")
 
     def nicHandler(self, body):
         name = body.split(":")[0]
@@ -287,7 +376,7 @@ class ReadThread(threading.Thread):
         roomNames = ":".join(roomNames)
         self.queue.put("MLS " + roomNames)
 
-    def madHandler(self,body):
+    def madHandler(self, body):
         username = body.split(":")[0]
         roomname = body.split(":")[1]
 
@@ -298,8 +387,8 @@ class ReadThread(threading.Thread):
                 self.queue.put("ERR userNotFound")
             else:
                 room.adminStore.addUser(user)
-                self.queue.put("MAD "+username+":"+roomname)
-                user.queue.put("MAD "+username+":"+roomname)
+                self.queue.put("MAD " + username + ":" + roomname)
+                user.queue.put("MAD " + username + ":" + roomname)
         else:
             self.queue.put("ERR permissionDenied")
 
@@ -385,6 +474,21 @@ class LoggerThread(threading.Thread):
         return "[" + now.strftime("%d/%m/%Y %H:%M:%S") + "] :: " + info + "\n"
 
 
+class DatabaseThread(threading.Thread):
+    def __init__(self, dataqueue, roomstore, userstore):
+        threading.Thread.__init__(self)
+        self.data = dataqueue
+        self.roomstore = roomstore
+        self.userstore = userstore
+
+    def run(self):
+        print("Database Thread Started")
+        sha = hashlib.sha256("".encode())
+        while True:
+            signal = self.data.get()
+            sha = Database.update(self.userstore, self.roomstore, sha)
+
+
 serversocket = socket.socket(
     socket.AF_INET, socket.SOCK_STREAM)
 
@@ -403,8 +507,15 @@ logQueue = queue.Queue()
 loggerThread = LoggerThread(logQueue)
 loggerThread.start()
 
+dbQueue = queue.Queue()
+
 userStore = UserStore()
 roomStore = RoomStore()
+
+dbThread = DatabaseThread(dbQueue, roomStore, userStore)
+dbThread.start()
+
+Database.adaptor(userStore, roomStore)
 
 while True:
     clientsocket, addr = serversocket.accept()
@@ -416,7 +527,7 @@ while True:
     # threadQueue
 
     cliQueue = queue.Queue()
-    readThread = ReadThread(clientsocket, cliQueue, logQueue, userStore, roomStore, str(addr))
+    readThread = ReadThread(clientsocket, cliQueue, logQueue, userStore, roomStore, str(addr), dbQueue)
     readThread.start()
 
     writeThread = WriteThread(clientsocket, cliQueue, logQueue, userStore, roomStore, str(addr))
