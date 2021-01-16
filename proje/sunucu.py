@@ -290,7 +290,7 @@ class ReadThread(threading.Thread):
             self.queue.put("ERR pinChangeRequestDeniedOldPinHasNotMatched")
 
     def nrmHandler(self, body):
-        room = Room(body, self.user)
+        room = Room(name=body, creator=self.user)
         try:
             self.roomStore.addRoom(room)
             self.queue.put("OKR " + body)
@@ -320,7 +320,7 @@ class ReadThread(threading.Thread):
         message = ":".join(body.split(":")[1:])
         user = self.userStore.getUserByName(username)
         if user is None:
-            self.queue.put("ERR invalidUser")
+            self.queue.put("ERR userNotFound")
         else:
             user.queue.put("OPM " + self.user.name + ":" + message)
 
