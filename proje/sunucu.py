@@ -253,6 +253,11 @@ class ReadThread(threading.Thread):
     def nicHandler(self, body):
         name = body.split(":")[0]
         pin = body.split(":")[1]
+        try:
+            pin = int(pin)
+        except:
+            self.queue.put("ERR invalidPin")
+            return
         if self.user.state == "OFFLINE":
             self.storedUser = self.userStore.getUserByName(name)
             if self.storedUser is None:
@@ -282,6 +287,17 @@ class ReadThread(threading.Thread):
     def pchHandler(self, body):
         old = body.split(":")[0]
         new = body.split(":")[1]
+        try:
+            old = int(old)
+        except:
+            self.queue.put("ERR pinChangeRequestDeniedOldPinIsInvalid")
+            return
+        try:
+            new = int(new)
+        except:
+            self.queue.put("ERR pinChangeRequestDeniedNewPinIsInvalid")
+            return
+
         if self.user.pin == old:
             self.user.setPin(new)
             self.queue.put("OKP")
