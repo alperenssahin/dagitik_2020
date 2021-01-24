@@ -1,0 +1,12 @@
+RLS<%%$%%>
+NIC torvalds:1972<%%$%%>
+PCH 1972:1974<%%$%%>
+RLS<%%$%%>
+GNL gentoo:selam<%%$%%>
+RIN gentoo<%%$%%>
+GNL gentoo:tekrar selam<%%$%%>
+PRV tux:beni niye banladın?<%%$%%>
+RIN ubuntu<%%$%%>
+ULS ubuntu<%%$%%>
+GNL ubuntu:hey<%%$%%>
+KCK ubuntu:tux<%%$%%>

@@ -1,0 +1,8 @@
+NIC kde:2020<%%$%%>
+RLS<%%$%%>
+RIN ubuntu<%%$%%>
+ULS ubuntu<%%$%%>
+NRM plasma<%%$%%>
+RIN plasma<%%$%%>
+RLS<%%$%%>
+RMV plasma<%%$%%>

@@ -1,0 +1,12 @@
+NIC tux:herring<%%$%%>
+NIC tux:1994<%%$%%>
+NIC torvalds:1972<%%$%%>
+NIC tux:1984<%%$%%>
+NIC tux:1994<%%$%%>
+NRM gentoo<%%$%%>
+RIN gentoo<%%$%%>
+KCK gentoo:torvalds<%%$%%>
+BAN gentoo:torvalds<%%$%%>
+NRM ubuntu<%%$%%>
+RIN ubuntu<%%$%%>
+MAD torvalds:ubuntu<%%$%%>
